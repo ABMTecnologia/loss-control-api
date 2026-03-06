@@ -1,0 +1,220 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  OPERATOR
+  MANAGER
+  COMPANY_ADMIN
+  SUPER_ADMIN
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  tradeName String?
+  cnpj      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  invites    Invite[]
+  categories Category[]
+  items      Item[]
+  reasons    Reason[]
+  sectors    Sector[]
+  lossEvents LossEvent[]
+  goals      Goal[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  name     String
+  email    String   @unique
+  password String
+  role     UserRole @default(OPERATOR)
+  isActive Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lossEvents LossEvent[] @relation("LossEventCreatedBy")
+
+  @@index([companyId])
+  @@index([role])
+}
+
+model Invite {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  email String
+  role  UserRole @default(OPERATOR)
+
+  token      String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+  @@index([email])
+}
+
+model Category {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name     String
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lossEvents LossEvent[]
+  reasons    Reason[]
+  items      Item[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model Reason {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name       String
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lossEvents LossEvent[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([categoryId])
+}
+
+model Sector {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name     String
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lossEvents LossEvent[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model Item {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  name     String
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lossEvents LossEvent[]
+
+  @@unique([companyId, categoryId, name])
+  @@index([companyId])
+  @@index([categoryId])
+}
+
+model LossEvent {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdById String
+  createdBy   User   @relation("LossEventCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  occurredAt DateTime @default(now())
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  itemId String?
+  item   Item? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  reasonId String?
+  reason   Reason? @relation(fields: [reasonId], references: [id], onDelete: SetNull)
+
+  sectorId String?
+  sector   Sector? @relation(fields: [sectorId], references: [id], onDelete: SetNull)
+
+  quantity   Decimal?
+  valueCents Int      @default(0)
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attachments Attachment[]
+
+  @@index([companyId, occurredAt])
+  @@index([createdById])
+  @@index([categoryId])
+  @@index([itemId])
+  @@index([sectorId])
+}
+
+model Attachment {
+  id          String    @id @default(uuid())
+  lossEventId String
+  lossEvent   LossEvent @relation(fields: [lossEventId], references: [id], onDelete: Cascade)
+
+  storageKey String
+  url        String
+  mimeType   String?
+  sizeBytes  Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([lossEventId])
+}
+
+model Goal {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name             String
+  periodStart      DateTime
+  periodEnd        DateTime
+  targetValueCents Int
+
+  categoryId String?
+  sectorId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, periodStart, periodEnd])
+}

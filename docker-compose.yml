@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: losscontrol-db
+    environment:
+      POSTGRES_USER: losscontrol
+      POSTGRES_PASSWORD: losscontrol
+      POSTGRES_DB: losscontrol
+    ports:
+      - "5432:5432"
+    volumes:
+      - losscontrol_pgdata:/var/lib/postgresql/data
+
+volumes:
+  losscontrol_pgdata:
