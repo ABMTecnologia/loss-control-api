@@ -32,6 +32,18 @@ Preencha o `.env`:
 
 - `DATABASE_URL`: conexão PostgreSQL.
 - `DEFAULT_USER_EMAIL`: usuário padrão usado no modo sem autenticação.
+- `ADMIN_BOOTSTRAP_EMAIL`: email do primeiro usuário SUPER_ADMIN criado no seed.
+- `ADMIN_BOOTSTRAP_NAME`: nome do SUPER_ADMIN de bootstrap.
+- `AUTH_EMAIL_MODE`: `console` (default, loga código OTP no terminal) ou `off` (desabilita OTP por e-mail e exige criar senha).
+- `AUTH_OTP_TTL_MINUTES`: tempo de expiração do código de login.
+- `AUTH_SESSION_TTL_DAYS`: validade da sessão (token bearer).
+- `ALLOW_LEGACY_AUTH`: `true` para aceitar fallback antigo com `x-user-email`/`DEFAULT_USER_EMAIL` (default recomendado: `false`).
+- `FRONTEND_URL`: base URL usada para montar link de convite.
+- `INVITE_TTL_HOURS`: expiração do link de convite (em horas).
+- `MANAGER_MAX_SUBORDINATES`: limite de operadores vinculados a um gerente.
+- `INVITE_EMAIL_MODE`: `console` (loga link no terminal) ou `resend` (envia e-mail real via Resend).
+- `EMAIL_FROM`: remetente usado no envio real de convite.
+- `RESEND_API_KEY`: chave da API Resend para envio de convites.
 - `STORAGE_IMAGE`: nome do bucket GCS (se vazio, salva local em `/uploads`).
 - `STORAGE_PUBLIC_BASE_URL`: URL pública base do bucket (opcional).
 - `GOOGLE_APPLICATION_CREDENTIALS`: caminho da chave JSON da service account (quando usar GCS).
@@ -45,6 +57,18 @@ Exemplo:
 ```env
 DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/losscontrol?schema=public"
 DEFAULT_USER_EMAIL="admin@empresa.com"
+ADMIN_BOOTSTRAP_EMAIL="gerencial@abm-tecnologia.com"
+ADMIN_BOOTSTRAP_NAME="Administrador ABM"
+AUTH_EMAIL_MODE="console"
+AUTH_OTP_TTL_MINUTES="10"
+AUTH_SESSION_TTL_DAYS="30"
+ALLOW_LEGACY_AUTH="false"
+FRONTEND_URL="http://localhost:5173"
+INVITE_TTL_HOURS="48"
+MANAGER_MAX_SUBORDINATES="5"
+INVITE_EMAIL_MODE="console"
+EMAIL_FROM="Loss Control <noreply@abm-tecnologia.com>"
+RESEND_API_KEY=""
 STORAGE_IMAGE=""
 STORAGE_PUBLIC_BASE_URL=""
 GOOGLE_APPLICATION_CREDENTIALS="C:/caminho/gcp-key.json"
@@ -136,8 +160,18 @@ Se `STORAGE_IMAGE` estiver preenchido, a API envia para GCS com o mesmo padrão 
 
 ## 7. Observações de desenvolvimento
 
-- O projeto está sem autenticação final por enquanto.
-- O usuário é identificado por `x-user-email` (frontend envia automaticamente com `VITE_USER_EMAIL`) ou por `DEFAULT_USER_EMAIL`.
+- Fluxo novo de auth:
+  - `POST /api/auth/request-login-code` envia/gera código de 6 dígitos.
+  - `POST /api/auth/verify-login-code` valida o código e retorna `accessToken` (Bearer).
+  - `POST /api/auth/login-password` login direto por senha.
+  - `POST /api/auth/set-password` cria/atualiza senha (primeiro acesso).
+  - `GET /api/auth/me` retorna usuário autenticado.
+  - `POST /api/auth/logout` revoga sessão.
+- Compatibilidade opcional: `x-user-email`/`DEFAULT_USER_EMAIL` só ficam ativos quando `ALLOW_LEGACY_AUTH=true`.
+- Convite de usuário:
+  - `POST /api/users/invite` cria convite e envia link por e-mail.
+  - `GET /api/invites/:token` valida token de convite.
+  - `POST /api/invites/:token/accept` aceita convite, cria senha e autentica.
 - Erros seguem formato padronizado:
 
 ```json

@@ -39,7 +39,7 @@ app.use(
       return cb(null, false);
     },
     methods: ["GET", "POST", "PATCH", "DELETE"],
-    allowedHeaders: ["Content-Type", "x-user-email"],
+    allowedHeaders: ["Content-Type", "x-user-email", "Authorization"],
   }),
   express.json({
     limit: process.env.JSON_LIMIT || "8mb",

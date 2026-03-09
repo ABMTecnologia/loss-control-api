@@ -13,6 +13,10 @@ enum UserRole {
   SUPER_ADMIN
 }
 
+enum AuthCodePurpose {
+  LOGIN
+}
+
 model Company {
   id        String   @id @default(uuid())
   name      String
@@ -35,10 +39,13 @@ model User {
   id        String   @id @default(uuid())
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  managedById String?
+  managedBy   User?   @relation("ManagerSubordinates", fields: [managedById], references: [id], onDelete: SetNull)
+  subordinates User[] @relation("ManagerSubordinates")
 
   name     String
   email    String   @unique
-  password String
+  password String?
   role     UserRole @default(OPERATOR)
   isActive Boolean  @default(true)
 
@@ -46,15 +53,49 @@ model User {
   updatedAt DateTime @updatedAt
 
   lossEvents LossEvent[] @relation("LossEventCreatedBy")
+  authCodes  AuthCode[]
+  sessions   Session[]
+  sentInvites Invite[]   @relation("InviteCreatedBy")
 
   @@index([companyId])
   @@index([role])
+  @@index([managedById])
+}
+
+model AuthCode {
+  id       String          @id @default(uuid())
+  userId   String
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose  AuthCodePurpose
+  codeHash String
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose, expiresAt])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  lastSeenAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 model Invite {
   id        String  @id @default(uuid())
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invitedById String?
+  invitedBy   User?  @relation("InviteCreatedBy", fields: [invitedById], references: [id], onDelete: SetNull)
 
   email String
   role  UserRole @default(OPERATOR)
@@ -67,6 +108,7 @@ model Invite {
 
   @@index([companyId])
   @@index([email])
+  @@index([invitedById])
 }
 
 model Category {

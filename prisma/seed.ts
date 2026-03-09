@@ -7,15 +7,18 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
+  const adminEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL ?? "gerencial@abm-tecnologia.com").trim().toLowerCase();
+  const adminName = process.env.ADMIN_BOOTSTRAP_NAME ?? "Administrador ABM";
+
   const company = await prisma.company.create({ data: { name: "Loss Control (Teste)" } });
 
   await prisma.user.create({
     data: {
       companyId: company.id,
-      name: "Rodrigo",
-      email: "r.monteiro.developer@gmail.com",
-      password: "TEMP_CHANGE_ME",
-      role: UserRole.COMPANY_ADMIN,
+      name: adminName,
+      email: adminEmail,
+      password: null,
+      role: UserRole.SUPER_ADMIN,
     },
   });
 
