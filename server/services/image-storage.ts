@@ -5,6 +5,7 @@ import { Storage } from "@google-cloud/storage";
 
 type UploadInput = {
   companyId: string;
+  companyName?: string | null;
   userId: string;
   lossEventId: string;
   mimeType: string;
@@ -23,10 +24,22 @@ const extByMime: Record<string, string> = {
   "image/webp": ".webp",
 };
 
+function slugifyCompanyName(value?: string | null) {
+  if (!value) return "";
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
 function buildKey(input: UploadInput) {
   const ext = (extByMime[input.mimeType] ?? path.extname(input.originalFileName)) || ".bin";
   const fileName = `${Date.now()}-${crypto.randomUUID()}${ext}`;
-  return `${input.companyId}/${input.userId}/loss-events/${input.lossEventId}/${fileName}`;
+  const companyFolder = slugifyCompanyName(input.companyName) || input.companyId;
+  return `${companyFolder}/${input.userId}/loss-events/${input.lossEventId}/${fileName}`;
 }
 
 let gcs: Storage | null = null;

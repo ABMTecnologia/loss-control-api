@@ -1540,8 +1540,15 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
     if (buffer.length > 5 * 1024 * 1024) {
       throw new ApiError(400, "FILE_TOO_LARGE", "File too large (max 5MB)");
     }
+
+    const company = await prisma.company.findUnique({
+      where: { id: actor.companyId! },
+      select: { name: true },
+    });
+
     const uploaded = await uploadLossEventImage({
       companyId: actor.companyId!,
+      companyName: company?.name,
       userId: actor.id,
       lossEventId: id,
       mimeType: body.mimeType,
