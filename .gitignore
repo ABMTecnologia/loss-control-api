@@ -8,3 +8,5 @@ vite.config.ts.*
 .env
 gcp-storage-key.json
 *.log
+package.json
+package-lock.json

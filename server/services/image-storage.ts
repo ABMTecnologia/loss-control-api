@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { Storage } from "@google-cloud/storage";
@@ -77,4 +77,28 @@ export async function uploadLossEventImage(input: UploadInput): Promise<UploadRe
     : `https://storage.googleapis.com/${bucketName}/${key}`;
 
   return { storageKey: key, url };
+}
+
+export async function deleteLossEventImage(storageKey: string): Promise<void> {
+  const bucketName = (process.env.STORAGE_IMAGE ?? "").trim();
+
+  if (!bucketName) {
+    // local storage
+    const absPath = path.join(process.cwd(), "uploads", storageKey);
+    try {
+      await unlink(absPath);
+    } catch {
+      // arquivo já removido ou não existe — ignora
+    }
+    return;
+  }
+
+  // Google Cloud Storage
+  const bucket = getGcs().bucket(bucketName);
+  const file = bucket.file(storageKey);
+  try {
+    await file.delete();
+  } catch {
+    // arquivo já removido ou não existe — ignora
+  }
 }

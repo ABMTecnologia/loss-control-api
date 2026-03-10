@@ -5,7 +5,7 @@ import { UserRole } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "./db/prisma";
 import { ApiError } from "./http/errors";
-import { uploadLossEventImage } from "./services/image-storage";
+import { uploadLossEventImage, deleteLossEventImage } from "./services/image-storage";
 
 /**
  * Sem Auth por enquanto:
@@ -1567,6 +1567,32 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
     });
 
     res.status(201).json(created);
+  });
+
+  app.delete("/api/loss-events/:id/attachments/:attachmentId", async (req, res) => {
+    const actor = await getActor(req);
+    const id = z.string().uuid().parse(req.params.id);
+    const attachmentId = z.string().uuid().parse(req.params.attachmentId);
+
+    // garante que o loss event pertence à company do ator
+    const existing = await prisma.lossEvent.findFirst({
+      where: { id, companyId: actor.companyId! },
+      select: { id: true },
+    });
+    if (!existing) throw new ApiError(404, "LOSS_EVENT_NOT_FOUND", "Loss event not found");
+
+    const attachment = await prisma.attachment.findFirst({
+      where: { id: attachmentId, lossEventId: id },
+    });
+    if (!attachment) throw new ApiError(404, "ATTACHMENT_NOT_FOUND", "Attachment not found");
+
+    // remove do storage (local ou GCS)
+    await deleteLossEventImage(attachment.storageKey);
+
+    // remove do banco
+    await prisma.attachment.delete({ where: { id: attachmentId } });
+
+    res.status(204).send();
   });
 
   // -----------------------
