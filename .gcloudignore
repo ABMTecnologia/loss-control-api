@@ -1,0 +1,9 @@
+.git
+.gitignore
+node_modules
+dist
+.env
+uploads
+npm-debug.log
+gcp-storage-key.json
+database_url_cloudrun.txt
