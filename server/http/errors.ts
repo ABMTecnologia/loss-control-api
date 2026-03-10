@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { MulterError } from "multer";
 import { ZodError } from "zod";
 
 export type ApiErrorBody = {
@@ -49,6 +50,20 @@ export function normalizeError(err: unknown): { status: number; body: ApiErrorBo
           code: "VALIDATION_ERROR",
           message: "Invalid request payload",
           details: err.flatten(),
+        },
+      },
+    };
+  }
+
+  if (err instanceof MulterError) {
+    const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    const code = err.code === "LIMIT_FILE_SIZE" ? "FILE_TOO_LARGE" : "INVALID_MULTIPART_UPLOAD";
+    return {
+      status,
+      body: {
+        error: {
+          code,
+          message: err.code === "LIMIT_FILE_SIZE" ? "File too large (max 5MB)" : err.message,
         },
       },
     };

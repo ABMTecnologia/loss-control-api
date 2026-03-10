@@ -1,11 +1,12 @@
 import type { Express, Request } from "express";
 import type { Server } from "http";
 import crypto, { randomInt } from "node:crypto";
-import { UserRole } from "@prisma/client";
+import multer from "multer";
+import { UserRole, type Attachment } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "./db/prisma";
 import { ApiError } from "./http/errors";
-import { uploadLossEventImage, deleteLossEventImage } from "./services/image-storage";
+import { uploadLossEventImage, deleteLossEventImage, readLossEventImage } from "./services/image-storage";
 
 /**
  * Sem Auth por enquanto:
@@ -17,6 +18,8 @@ const OTP_TTL_MINUTES = Math.max(1, Number(process.env.AUTH_OTP_TTL_MINUTES ?? 1
 const SESSION_TTL_DAYS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_DAYS ?? 30));
 const INVITE_TTL_HOURS = Math.max(1, Number(process.env.INVITE_TTL_HOURS ?? 48));
 const MANAGER_MAX_SUBORDINATES = Math.max(1, Number(process.env.MANAGER_MAX_SUBORDINATES ?? 5));
+const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+const ADMIN_WRITE_ROLES = [UserRole.MANAGER, UserRole.COMPANY_ADMIN, UserRole.SUPER_ADMIN] as const;
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -179,7 +182,7 @@ async function resolveActorFromLegacyEmailHeader(req: Request) {
     return null;
   }
 
-  const email = normalizeEmail(req.header("x-user-email") || process.env.DEFAULT_USER_EMAIL || "");
+  const email = normalizeEmail(req.header("x-user-email") || "");
 
   if (email) {
     const user = await prisma.user.findUnique({ where: { email } });
@@ -196,14 +199,7 @@ async function getActor(req: Request) {
   const fromLegacy = await resolveActorFromLegacyEmailHeader(req);
   if (fromLegacy) return fromLegacy;
 
-  const first = await prisma.user.findFirst({
-    where: { isActive: true },
-    orderBy: { createdAt: "asc" },
-  });
-  if (!first) {
-    throw Object.assign(new Error("No active user found. Run seed."), { status: 500 });
-  }
-  return first;
+  throw new ApiError(401, "UNAUTHORIZED", "Authentication required");
 }
 
 function assertHasCompany(user: { companyId: string | null }) {
@@ -258,6 +254,33 @@ function parseBody<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw parsed.error;
   return parsed.data;
+}
+
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: ATTACHMENT_MAX_BYTES, files: 1 },
+});
+
+function getAttachmentContentUrl(attachmentId: string) {
+  return `/api/attachments/${attachmentId}/content`;
+}
+
+function serializeAttachment(attachment: Attachment) {
+  return {
+    id: attachment.id,
+    lossEventId: attachment.lossEventId,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+    createdAt: attachment.createdAt,
+    url: getAttachmentContentUrl(attachment.id),
+  };
+}
+
+function serializeAttachmentList<T extends { attachments: Attachment[] }>(entity: T) {
+  return {
+    ...entity,
+    attachments: entity.attachments.map(serializeAttachment),
+  };
 }
 
 async function assertCategoryOwned(companyId: string, categoryId: string) {
@@ -425,12 +448,6 @@ const createGoalSchema = z.object({
   targetValueCents: z.number().int().nonnegative(),
   categoryId: z.string().uuid().optional(),
   sectorId: z.string().uuid().optional(),
-});
-
-const createAttachmentSchema = z.object({
-  fileName: z.string().trim().min(1).max(255),
-  mimeType: z.string().trim().min(1).max(120),
-  base64Data: z.string().trim().min(1),
 });
 
 const createItemSchema = z.object({
@@ -1034,6 +1051,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.post("/api/settings/categories", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const body = parseBody(createNamedSchema, req.body);
 
     const created = await prisma.category.create({
@@ -1048,6 +1066,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.patch("/api/settings/categories/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const body = parseBody(updateNamedSchema, req.body);
 
@@ -1065,6 +1084,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.delete("/api/settings/categories/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const updated = await prisma.category.updateMany({
       where: { id, companyId: actor.companyId! },
@@ -1085,6 +1105,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.post("/api/settings/sectors", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const body = parseBody(createNamedSchema, req.body);
 
     const created = await prisma.sector.create({
@@ -1099,6 +1120,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.patch("/api/settings/sectors/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const body = parseBody(updateNamedSchema, req.body);
     const updated = await prisma.sector.updateMany({
@@ -1115,6 +1137,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.delete("/api/settings/sectors/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const updated = await prisma.sector.updateMany({
       where: { id, companyId: actor.companyId! },
@@ -1135,6 +1158,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.post("/api/settings/reasons", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const body = parseBody(createNamedSchema, req.body);
     if (body.categoryId) await assertCategoryOwned(actor.companyId!, body.categoryId);
 
@@ -1151,6 +1175,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.patch("/api/settings/reasons/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const body = parseBody(
       z
@@ -1181,6 +1206,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.delete("/api/settings/reasons/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const updated = await prisma.reason.updateMany({
       where: { id, companyId: actor.companyId! },
@@ -1208,6 +1234,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.post("/api/settings/items", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const body = parseBody(createItemSchema, req.body);
     await assertCategoryOwned(actor.companyId!, body.categoryId);
 
@@ -1224,6 +1251,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.patch("/api/settings/items/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const body = parseBody(updateItemSchema, req.body);
 
@@ -1243,6 +1271,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.delete("/api/settings/items/:id", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const id = z.string().uuid().parse(req.params.id);
     const updated = await prisma.item.updateMany({
       where: { id, companyId: actor.companyId! },
@@ -1274,6 +1303,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.patch("/api/company", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const body = parseBody(updateCompanySchema, req.body);
 
     const updated = await prisma.company.update({
@@ -1332,6 +1362,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
 
   app.post("/api/goals", async (req, res) => {
     const actor = await getActor(req);
+    assertRole(actor, [...ADMIN_WRITE_ROLES]);
     const body = parseBody(createGoalSchema, req.body);
 
     const periodStart = parseOptionalDate(body.periodStart);
@@ -1483,7 +1514,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
       }),
     ]);
 
-    res.json({ total, limit, offset, items });
+    res.json({ total, limit, offset, items: items.map(serializeAttachmentList) });
   });
 
   app.get("/api/loss-events/:id", async (req, res) => {
@@ -1503,7 +1534,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
     });
 
     if (!item) throw new ApiError(404, "LOSS_EVENT_NOT_FOUND", "Not found");
-    res.json(item);
+    res.json(serializeAttachmentList(item));
   });
 
   app.delete("/api/loss-events/:id", async (req, res) => {
@@ -1513,18 +1544,25 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
     // garante que é da mesma company
     const existing = await prisma.lossEvent.findFirst({
       where: { id, companyId: actor.companyId! },
-      select: { id: true },
+      select: {
+        id: true,
+        attachments: {
+          select: {
+            storageKey: true,
+          },
+        },
+      },
     });
     if (!existing) throw new ApiError(404, "LOSS_EVENT_NOT_FOUND", "Not found");
 
+    await Promise.all(existing.attachments.map((attachment) => deleteLossEventImage(attachment.storageKey)));
     await prisma.lossEvent.delete({ where: { id } });
     res.status(204).send();
   });
 
-  app.post("/api/loss-events/:id/attachments", async (req, res) => {
+  app.post("/api/loss-events/:id/attachments", attachmentUpload.single("file"), async (req, res) => {
     const actor = await getActor(req);
     const id = z.string().uuid().parse(req.params.id);
-    const body = parseBody(createAttachmentSchema, req.body);
 
     const existing = await prisma.lossEvent.findFirst({
       where: { id, companyId: actor.companyId! },
@@ -1532,12 +1570,13 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
     });
     if (!existing) throw new ApiError(404, "LOSS_EVENT_NOT_FOUND", "Loss event not found");
 
-    const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-    if (!allowedMimeTypes.has(body.mimeType)) throw new ApiError(400, "UNSUPPORTED_FILE_TYPE", "Unsupported file type");
+    const file = req.file;
+    if (!file) throw new ApiError(400, "FILE_REQUIRED", "Attachment file is required");
 
-    const buffer = Buffer.from(body.base64Data, "base64");
-    if (!buffer.length) throw new ApiError(400, "EMPTY_FILE", "Empty file");
-    if (buffer.length > 5 * 1024 * 1024) {
+    const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowedMimeTypes.has(file.mimetype)) throw new ApiError(400, "UNSUPPORTED_FILE_TYPE", "Unsupported file type");
+    if (!file.buffer.length) throw new ApiError(400, "EMPTY_FILE", "Empty file");
+    if (file.size > ATTACHMENT_MAX_BYTES) {
       throw new ApiError(400, "FILE_TOO_LARGE", "File too large (max 5MB)");
     }
 
@@ -1551,22 +1590,28 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
       companyName: company?.name,
       userId: actor.id,
       lossEventId: id,
-      mimeType: body.mimeType,
-      originalFileName: body.fileName,
-      buffer,
+      mimeType: file.mimetype,
+      originalFileName: file.originalname,
+      buffer: file.buffer,
     });
 
     const created = await prisma.attachment.create({
       data: {
         lossEventId: id,
         storageKey: uploaded.storageKey,
-        url: uploaded.url,
-        mimeType: body.mimeType,
-        sizeBytes: buffer.length,
+        url: "",
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
       },
     });
 
-    res.status(201).json(created);
+    const attachmentUrl = getAttachmentContentUrl(created.id);
+    await prisma.attachment.update({
+      where: { id: created.id },
+      data: { url: attachmentUrl },
+    });
+
+    res.status(201).json(serializeAttachment({ ...created, url: attachmentUrl }));
   });
 
   app.delete("/api/loss-events/:id/attachments/:attachmentId", async (req, res) => {
@@ -1593,6 +1638,26 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
     await prisma.attachment.delete({ where: { id: attachmentId } });
 
     res.status(204).send();
+  });
+
+  app.get("/api/attachments/:attachmentId/content", async (req, res) => {
+    const actor = await getActor(req);
+    const attachmentId = z.string().uuid().parse(req.params.attachmentId);
+
+    const attachment = await prisma.attachment.findFirst({
+      where: {
+        id: attachmentId,
+        lossEvent: {
+          companyId: actor.companyId!,
+        },
+      },
+    });
+    if (!attachment) throw new ApiError(404, "ATTACHMENT_NOT_FOUND", "Attachment not found");
+
+    const buffer = await readLossEventImage(attachment.storageKey);
+    res.setHeader("Content-Type", attachment.mimeType ?? "application/octet-stream");
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.send(buffer);
   });
 
   // -----------------------

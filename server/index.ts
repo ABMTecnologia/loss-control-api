@@ -2,7 +2,6 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { createServer } from "http";
 import cors from "cors";
-import path from "node:path";
 import { normalizeError } from "./http/errors";
 import { createRateLimitMiddleware } from "./http/rate-limit";
 
@@ -50,7 +49,6 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use(
   "/api",
   createRateLimitMiddleware({

@@ -1,4 +1,4 @@
-import { mkdir, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { Storage } from "@google-cloud/storage";
@@ -101,4 +101,18 @@ export async function deleteLossEventImage(storageKey: string): Promise<void> {
   } catch {
     // arquivo já removido ou não existe — ignora
   }
+}
+
+export async function readLossEventImage(storageKey: string): Promise<Buffer> {
+  const bucketName = (process.env.STORAGE_IMAGE ?? "").trim();
+
+  if (!bucketName) {
+    const absPath = path.join(process.cwd(), "uploads", storageKey);
+    return readFile(absPath);
+  }
+
+  const bucket = getGcs().bucket(bucketName);
+  const file = bucket.file(storageKey);
+  const [buffer] = await file.download();
+  return buffer;
 }

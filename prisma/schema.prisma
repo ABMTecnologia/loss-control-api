@@ -125,6 +125,7 @@ model Category {
   lossEvents LossEvent[]
   reasons    Reason[]
   items      Item[]
+  goals      Goal[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -163,6 +164,7 @@ model Sector {
   updatedAt DateTime @updatedAt
 
   lossEvents LossEvent[]
+  goals      Goal[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -254,9 +256,13 @@ model Goal {
 
   categoryId String?
   sectorId   String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  sector     Sector?   @relation(fields: [sectorId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([companyId, periodStart, periodEnd])
+  @@index([companyId, categoryId, periodStart, periodEnd])
+  @@index([companyId, sectorId, periodStart, periodEnd])
 }
